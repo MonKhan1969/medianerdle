@@ -5,6 +5,10 @@ import { cookies } from "next/headers";
 
 import { TRPCReactProvider } from "@/trpc/react";
 
+import Link from "next/link";
+import { buttonVariants } from "@/app/_components/ui/button";
+import { getServerAuthSession } from "@/server/auth";
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
@@ -25,9 +29,26 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans ${inter.variable}`}>
         <TRPCReactProvider cookies={cookies().toString()}>
+          <Header />
           {children}
         </TRPCReactProvider>
       </body>
     </html>
+  );
+}
+
+async function Header() {
+  const session = await getServerAuthSession();
+
+  return (
+    <header>
+      <Link href="/">medianerdle</Link>
+      <Link
+        className={buttonVariants()}
+        href={session ? "/api/auth/signout" : "/api/auth/signin"}
+      >
+        {session ? "Sign Out" : "Sign In"}
+      </Link>
+    </header>
   );
 }
