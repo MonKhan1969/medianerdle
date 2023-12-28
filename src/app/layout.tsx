@@ -5,6 +5,8 @@ import { cookies } from "next/headers";
 
 import { TRPCReactProvider } from "@/trpc/react";
 
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+
 import Link from "next/link";
 import { buttonVariants } from "@/app/_components/ui/button";
 import { getServerAuthSession } from "@/server/auth";
@@ -34,6 +36,7 @@ export default function RootLayout({
           <Header />
           {children}
           <TailwindIndicator />
+          <ReactQueryDevtools initialIsOpen />
         </TRPCReactProvider>
       </body>
     </html>
