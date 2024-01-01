@@ -32,12 +32,11 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string(),
     UPSTASH_REDIS_REST_URL: z.string().url(),
     UPSTASH_REDIS_REST_TOKEN: z.string(),
-    SUPABASE_URL: z.string().url(),
-    SUPABASE_KEY: z.string(),
     TMDB_API_KEY: z.string(),
     TMDB_ACCESS_TOKEN: z.string(),
     TWITCH_CLIENT_ID: z.string(),
     TWITCH_CLIENT_SECRET: z.string(),
+    ABLY_API_KEY: z.string(),
   },
 
   /**
@@ -62,12 +61,11 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
-    SUPABASE_URL: process.env.SUPABASE_URL,
-    SUPABASE_KEY: process.env.SUPABASE_KEY,
     TMDB_API_KEY: process.env.TMDB_API_KEY,
     TMDB_ACCESS_TOKEN: process.env.TMDB_ACCESS_TOKEN,
     TWITCH_CLIENT_ID: process.env.TWITCH_CLIENT_ID,
     TWITCH_CLIENT_SECRET: process.env.TWITCH_CLIENT_SECRET,
+    ABLY_API_KEY: process.env.ABLY_API_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

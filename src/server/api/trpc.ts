@@ -9,10 +9,11 @@
 
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 
 import { getServerAuthSession } from "@/server/auth";
-import { db } from "@/server/db";
+import { db, redis, lock } from "@/server/db";
+import { ablyClient } from "@/server/realtime-rest";
 
 /**
  * 1. CONTEXT
@@ -31,6 +32,20 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 
   return {
     db,
+    redis: {
+      ...redis,
+      get: async <T>(key: string, schema: z.ZodType<T>) => {
+        const value = await redis.get(key);
+
+        const redisSchema = z.union([z.null(), schema]);
+
+        const parsedValue = redisSchema.parse(value);
+
+        return parsedValue;
+      },
+    },
+    lock,
+    realtimeRestClient: ablyClient,
     session,
     ...opts,
   };
