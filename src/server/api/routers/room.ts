@@ -189,27 +189,25 @@ export const roomRouter = createTRPCRouter({
     }
   }),
   leave: protectedProcedure.mutation(async ({ ctx }) => {
+    // TODO: make this work when game isn't active / there is no opponent
+
     const roomCode = await ctx.redis.get(
       `player:${ctx.session.user.id}:room-code`,
       z.string(),
     );
 
-    if (!roomCode)
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Room code not found",
-      });
+    if (!roomCode) return;
 
     const gameState = await ctx.redis.get(
       `room:${roomCode}:game-state`,
       gameStateSchema,
     );
 
-    if (!gameState)
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Game state not found",
-      });
+    if (!gameState) {
+      await ctx.redis.del(`player:${ctx.session.user.id}:room-code`);
+
+      return;
+    }
 
     await ctx.redis.del(
       `player:${gameState.players[0]}:room-code`,
@@ -259,6 +257,6 @@ export const roomRouter = createTRPCRouter({
         message: "Opponent not found in database",
       });
 
-    return { name: opponent.name ?? "Opponent" };
+    return { name: opponent.name ?? emptyName.name };
   }),
 });

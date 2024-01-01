@@ -3,7 +3,7 @@
 import * as Ably from "ably";
 import { AblyProvider, useChannel } from "ably/react";
 import { useEffect, useState } from "react";
-import { useCombobox } from "downshift";
+import { type UseComboboxStateChangeTypes, useCombobox } from "downshift";
 import { useSession } from "next-auth/react";
 
 import { api } from "@/trpc/react";
@@ -42,7 +42,9 @@ function BattlePage() {
 
   return (
     <>
-      {!isOpponentPresent && <div>Waiting for an opponent...</div>}
+      {!isGameOver && !isOpponentPresent && (
+        <div>Waiting for an opponent...</div>
+      )}
       <div>Room Code: {room.data?.roomCode}</div>
 
       {isGameOver && (
@@ -68,9 +70,9 @@ function BattlePage() {
         </Button>
       )}
 
-      {!!room.data && isOpponentPresent && (
+      {!!room.data && (
         <Battle
-          channelName={room.data.roomCode}
+          initialChannelName={room.data.roomCode}
           initialGameState={room.data.gameState}
           isGameOver={isGameOver}
           setIsGameOver={setIsGameOver}
@@ -81,21 +83,28 @@ function BattlePage() {
 }
 
 function Battle({
-  channelName,
+  initialChannelName,
   initialGameState,
   isGameOver,
   setIsGameOver,
 }: {
-  channelName: string;
+  initialChannelName: string;
   initialGameState: GameState;
   isGameOver: boolean;
   setIsGameOver: (isGameOver: boolean) => void;
 }) {
+  const [channelName, setChannelName] = useState(initialChannelName);
+  useEffect(() => {
+    setChannelName(initialChannelName);
+  }, [initialChannelName]);
+
   const [gameState, setGameState] = useState(initialGameState);
   useEffect(() => {
     setGameState(initialGameState);
   }, [initialGameState]);
-  // console.log({ channelName, initialGameState, gameState });
+
+  const isOpponentPresent = gameState.players.length === 2;
+
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query);
 
@@ -141,8 +150,10 @@ function Battle({
     inputValue: query,
     onStateChange: (e) => {
       if (
-        (e.type.includes("__input_keydown_enter__") ||
-          e.type.includes("__item_click__")) &&
+        (e.type ===
+          ("__input_keydown_enter__" as UseComboboxStateChangeTypes.InputKeyDownEnter) ||
+          e.type ===
+            ("__item_click__" as UseComboboxStateChangeTypes.ItemClick)) &&
         !!e.selectedItem
       ) {
         console.log("onStateChange", e);
@@ -153,7 +164,7 @@ function Battle({
   });
 
   return (
-    <div>
+    <div className={cn(!isOpponentPresent && "hidden")}>
       <div className="flex">
         <div className="w-1/3">{session?.user.name ?? "You"}</div>
         <div className="w-1/3 text-center">vs</div>
@@ -161,7 +172,7 @@ function Battle({
           {opponent.data?.name ?? "Opponent"}
         </div>
       </div>
-      {!isPlayerTurn && <div>Opponent's Turn</div>}
+      {!isGameOver && !isPlayerTurn && <div>Opponent's Turn</div>}
 
       <form
         onSubmit={(e) => {

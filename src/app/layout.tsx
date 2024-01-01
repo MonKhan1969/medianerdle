@@ -49,6 +49,7 @@ async function Header() {
   return (
     <header className="container">
       <Link href="/">MediaNerdle</Link>
+      {!!session?.user.name && <div>{session.user.name}</div>}
       <Link
         className={buttonVariants()}
         href={session ? "/api/auth/signout" : "/api/auth/signin"}
