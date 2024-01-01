@@ -61,8 +61,9 @@ export const gameRouter = createTRPCRouter({
   submitAnswer: protectedProcedure
     .input(z.object({ answer: mediaSchema }))
     .mutation(async ({ ctx, input }) => {
-      // TODO: check to make sure it isnt the same as the last one
       // TODO: get time and compare to time in redis
+
+      const answerId = `${input.answer.mediaType}-${input.answer.id}`;
 
       const roomCode = await ctx.redis.get(
         `player:${ctx.session.user.id}:room-code`,
@@ -93,6 +94,26 @@ export const gameRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message: "Not user's turn",
         });
+
+      // TODO: make more robust by using id instead of title and year
+      if (
+        gameState.initialTitle ===
+        `${input.answer.title} (${input.answer.year})`
+      )
+        return {
+          success: false,
+          message: "This media has already been played",
+        };
+
+      const isMediaAlreadyPlayed = gameState.media.find(
+        (item) => item.id === answerId,
+      );
+
+      if (isMediaAlreadyPlayed)
+        return {
+          success: false,
+          message: "This media has already been played",
+        };
 
       const credits = await tmdb[
         input.answer.mediaType === "movie" ? "movies" : "tvShows"
@@ -125,11 +146,13 @@ export const gameRouter = createTRPCRouter({
         [] as { id: number; name: string }[],
       );
 
-      if (links.length === 0) return { success: false };
+      if (links.length === 0)
+        return { success: false, message: "No links found" };
 
       gameState.currentCredits = peopleIds;
       gameState.media = [
         {
+          id: answerId,
           title: `${input.answer.title} (${input.answer.year})`,
           links,
         },

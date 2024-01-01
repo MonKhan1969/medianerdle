@@ -5,6 +5,7 @@ export const gameStateSchema = z.object({
   initialTitle: z.string(),
   media: z.array(
     z.object({
+      id: z.string(),
       title: z.string(),
       links: z.array(z.object({ id: z.number(), name: z.string() })),
     }),

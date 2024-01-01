@@ -37,6 +37,7 @@ export const env = createEnv({
     TWITCH_CLIENT_ID: z.string(),
     TWITCH_CLIENT_SECRET: z.string(),
     ABLY_API_KEY: z.string(),
+    HIGHLIGHT_SOURCEMAP_UPLOAD_API_KEY: z.string(),
   },
 
   /**
@@ -45,7 +46,7 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    NEXT_PUBLIC_HIGHLIGHT_PROJECT_ID: z.string(),
   },
 
   /**
@@ -66,6 +67,10 @@ export const env = createEnv({
     TWITCH_CLIENT_ID: process.env.TWITCH_CLIENT_ID,
     TWITCH_CLIENT_SECRET: process.env.TWITCH_CLIENT_SECRET,
     ABLY_API_KEY: process.env.ABLY_API_KEY,
+    NEXT_PUBLIC_HIGHLIGHT_PROJECT_ID:
+      process.env.NEXT_PUBLIC_HIGHLIGHT_PROJECT_ID,
+    HIGHLIGHT_SOURCEMAP_UPLOAD_API_KEY:
+      process.env.HIGHLIGHT_SOURCEMAP_UPLOAD_API_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

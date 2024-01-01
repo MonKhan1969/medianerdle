@@ -5,6 +5,7 @@ import { AblyProvider, useChannel } from "ably/react";
 import { useEffect, useState } from "react";
 import { type UseComboboxStateChangeTypes, useCombobox } from "downshift";
 import { useSession } from "next-auth/react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 
 import { api } from "@/trpc/react";
 import {
@@ -105,6 +106,8 @@ function Battle({
 
   const isOpponentPresent = gameState.players.length === 2;
 
+  const [animationParent] = useAutoAnimate();
+
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query);
 
@@ -149,6 +152,8 @@ function Battle({
     itemToString: (item) => item?.title ?? "",
     inputValue: query,
     onStateChange: (e) => {
+      // TODO: answer isn't submitted on enter keypress, need to fix
+
       if (
         (e.type ===
           ("__input_keydown_enter__" as UseComboboxStateChangeTypes.InputKeyDownEnter) ||
@@ -223,10 +228,10 @@ function Battle({
         </ul>
       </form>
 
-      <div className="flex-col">
-        {gameState.media.map((media, i) => (
+      <div className="flex-col" ref={animationParent}>
+        {gameState.media.map((media) => (
           <MediaWithLinks
-            key={`${i}-${media.title}`}
+            key={media.id}
             title={media.title}
             links={media.links}
           />
