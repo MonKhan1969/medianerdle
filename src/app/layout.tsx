@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/react";
 import { AxiomWebVitals } from "next-axiom";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 import { env } from "@/env";
 import { TRPCReactProvider } from "@/trpc/react";
@@ -40,6 +41,7 @@ export default async function RootLayout({
             <TailwindIndicator />
             <Analytics />
             <AxiomWebVitals />
+            <SpeedInsights />
           </ClientSessionProvider>
         </TRPCReactProvider>
       </body>
