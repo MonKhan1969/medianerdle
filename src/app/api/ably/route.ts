@@ -8,7 +8,7 @@ export async function GET() {
 
   if (!session) return Response.json({ error: "No session" }, { status: 401 });
 
-  const client = new Ably.Realtime(env.ABLY_API_KEY);
+  const client = new Ably.Rest(env.ABLY_API_KEY);
 
   const tokenRequestData = await client.auth.createTokenRequest({
     clientId: session.user.id,
