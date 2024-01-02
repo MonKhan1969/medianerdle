@@ -15,7 +15,6 @@ import {
   getIsPlayerTurn,
   // endGameSchema,
 } from "@/lib/game-state";
-import { useDebounce } from "@/lib/useDebounce";
 import { Input } from "@/app/_components/ui/input";
 import { Button, buttonVariants } from "@/app/_components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,13 +27,12 @@ const client = new Ably.Realtime.Promise({
 export default function BattleClient() {
   return (
     <AblyProvider client={client}>
-      {/* <BattlePage /> */}
-      <NewBattlePage />
+      <BattlePage />
     </AblyProvider>
   );
 }
 
-function NewBattlePage() {
+function BattlePage() {
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameState, setGameState] = useState<GameState>();
 
@@ -165,11 +163,14 @@ function PlayerTurn(props: {
   isPlayerTurn: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const debouncedQuery = useDebounce(query, 250);
 
   const search = api.game.search.useQuery(
-    { query: debouncedQuery },
-    { enabled: !!debouncedQuery, keepPreviousData: true },
+    { query },
+    {
+      enabled:
+        !props.isGameOver && props.isOpponentPresent && props.isPlayerTurn,
+      keepPreviousData: true,
+    },
   );
 
   const submit = api.game.submitAnswer.useMutation();
@@ -243,7 +244,7 @@ function PlayerTurn(props: {
               })}
               key={item.key}
             >
-              {item.label}
+              {item.mediaType === "tv" ? "📺" : "🎥"} {item.label}
             </li>
           ))}
         </ul>

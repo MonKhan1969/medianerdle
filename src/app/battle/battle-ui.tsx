@@ -2,35 +2,28 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { type PersonLink } from "@/lib/game-state";
 
-export function MediaWithLinks({
-  label,
-  links,
-}: {
-  label: string;
-  links: { id: number; name: string }[];
-}) {
+export function MediaWithLinks(props: { label: string; links: PersonLink[] }) {
   return (
     <div className="flex-col">
-      <Media label={label} />
+      <Media label={props.label} />
       <div className="mx-auto h-12 w-1 bg-green-500" />
-      <PeopleLinks links={links} />
+      <PeopleLinks links={props.links} />
       <div className="mx-auto h-12 w-1 bg-green-500" />
     </div>
   );
 }
 
-export function Media({ label }: { label: string }) {
+export function Media(props: { label: string }) {
   return (
-    <div className="w-full rounded-lg bg-red-500 p-5 text-center">{label}</div>
+    <div className="w-full rounded-lg bg-red-500 p-5 text-center">
+      {props.label}
+    </div>
   );
 }
 
-export function PeopleLinks({
-  links,
-}: {
-  links: { id: number; name: string }[];
-}) {
+export function PeopleLinks(props: { links: PersonLink[] }) {
   const [showMore, setShowMore] = useState(false);
 
   return (
@@ -41,14 +34,14 @@ export function PeopleLinks({
           showMore ? "max-h-44 overflow-auto" : "overflow-hidden",
         )}
       >
-        {links.map((link) => (
+        {props.links.map((link) => (
           <li key={link.id} className="flex justify-between text-pretty p-1">
             <div>{link.name}</div>
             <div>⭐⭐⭐</div>
           </li>
         ))}
       </ul>
-      {!showMore && links.length > 3 && (
+      {!showMore && props.links.length > 3 && (
         <div onClick={() => setShowMore(true)} className="p-1">
           Show more links
         </div>

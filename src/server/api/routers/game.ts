@@ -4,7 +4,12 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { TMDB } from "tmdb-ts";
 import { env } from "@/env";
 import { TRPCError } from "@trpc/server";
-import { gameStateSchema, getIsPlayerTurn } from "@/lib/game-state";
+import {
+  type PersonLink,
+  gameStateSchema,
+  getIsJobValid,
+  getIsPlayerTurn,
+} from "@/lib/game-state";
 
 const mediaSchema = z.object({
   key: z.string(),
@@ -21,34 +26,34 @@ export const gameRouter = createTRPCRouter({
   search: protectedProcedure
     .input(z.object({ query: z.string() }))
     .query(async ({ input }) => {
+      if (!input.query) return { results: [] };
+
       const { results } = await tmdb.search.multi({ query: input.query });
 
       const mediaResults = results.reduce((acc, result) => {
         if (acc.length >= 5 || result.media_type === "person") return acc;
 
         if (result.media_type === "movie") {
+          if (!result.release_date) return acc;
           return [
             ...acc,
             {
               key: `${result.media_type}-${result.id}`,
               id: result.id,
-              label: `${result.title} (${
-                result.release_date.slice(0, 4) || "N/A"
-              })`,
+              label: `${result.title} (${result.release_date.slice(0, 4)})`,
               mediaType: "movie",
             },
           ];
         }
 
         if (result.media_type === "tv") {
+          if (!result.first_air_date) return acc;
           return [
             ...acc,
             {
               key: `${result.media_type}-${result.id}`,
               id: result.id,
-              label: `${result.name} (${
-                result.first_air_date.slice(0, 4) || "N/A"
-              })`,
+              label: `${result.name} (${result.first_air_date.slice(0, 4)})`,
               mediaType: "tv",
             },
           ];
@@ -116,36 +121,54 @@ export const gameRouter = createTRPCRouter({
           message: "This media has already been played",
         };
 
-      const credits = await tmdb[
-        input.answer.mediaType === "movie" ? "movies" : "tvShows"
-      ].credits(input.answer.id);
+      // TODO: make more efficient
+      let cast: PersonLink[];
+      let crew: PersonLink[];
 
-      const people = [
-        ...credits.cast,
-        ...credits.crew.filter(
-          (person) =>
-            person.job === "Director" ||
-            person.job === "Writer" ||
-            person.job === "Director of Photography" ||
-            person.job.includes("Composer"),
-        ),
-      ];
+      if (input.answer.mediaType === "movie") {
+        const credits = await tmdb.movies.credits(input.answer.id);
+        cast = credits.cast.map((person) => ({
+          id: person.id,
+          name: person.name,
+        }));
+        crew = credits.crew.reduce((acc, person) => {
+          if (getIsJobValid(person.job))
+            return [...acc, { id: person.id, name: person.name }];
+
+          return acc;
+        }, [] as PersonLink[]);
+      } else if (input.answer.mediaType === "tv") {
+        const credits = await tmdb.tvShows.aggregateCredits(input.answer.id);
+        cast = credits.cast.map((person) => ({
+          id: person.id,
+          name: person.name,
+        }));
+        crew = credits.crew.reduce((acc, person) => {
+          const isJobValid = person.jobs.some((job) => getIsJobValid(job.job));
+          if (isJobValid) return [...acc, { id: person.id, name: person.name }];
+          return acc;
+        }, [] as PersonLink[]);
+      } else {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Unknown media type "${input.answer.mediaType}"`,
+        });
+      }
+
+      const people = [...cast, ...crew];
 
       const peopleIds: number[] = [];
 
-      const links = people.reduce(
-        (acc, person) => {
-          peopleIds.push(person.id);
+      const links = people.reduce((acc, person) => {
+        peopleIds.push(person.id);
 
-          const found = gameState.currentCredits.find((id) => id === person.id);
-          if (typeof found === "undefined") return acc;
+        const found = gameState.currentCredits.find((id) => id === person.id);
+        if (typeof found === "undefined") return acc;
 
-          if (acc.find((link) => link.id === person.id)) return acc;
+        if (acc.find((link) => link.id === person.id)) return acc;
 
-          return [...acc, { id: person.id, name: person.name }];
-        },
-        [] as { id: number; name: string }[],
-      );
+        return [...acc, person];
+      }, [] as PersonLink[]);
 
       if (links.length === 0)
         return { success: false, message: "No links found" };

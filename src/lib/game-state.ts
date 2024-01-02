@@ -37,6 +37,22 @@ export function getIsPlayerTurn(
   return gameState.players[gameState.media.length % 2] === player;
 }
 
+export function getIsJobValid(job: string) {
+  return (
+    job === "Director" ||
+    job === "Writer" ||
+    job === "Director of Photography" ||
+    job.includes("Composer")
+  );
+}
+
+export const personLinkSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+});
+
+export type PersonLink = z.infer<typeof personLinkSchema>;
+
 export const endGameSchema = z.object({
   reason: z.string(),
   player: z.string(),
