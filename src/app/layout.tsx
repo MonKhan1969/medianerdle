@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/react";
+import { AxiomWebVitals } from "next-axiom";
 
 import { env } from "@/env";
 import { TRPCReactProvider } from "@/trpc/react";
@@ -38,6 +39,7 @@ export default async function RootLayout({
             <main className="container">{children}</main>
             <TailwindIndicator />
             <Analytics />
+            <AxiomWebVitals />
           </ClientSessionProvider>
         </TRPCReactProvider>
       </body>

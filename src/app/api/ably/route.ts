@@ -1,9 +1,10 @@
 import Ably from "ably/promises";
+import { withAxiom, type AxiomRequest } from "next-axiom";
 
 import { env } from "@/env";
 import { getServerAuthSession } from "@/server/auth";
 
-export async function GET() {
+export const GET = withAxiom(async (req: AxiomRequest) => {
   const session = await getServerAuthSession();
 
   if (!session) return Response.json({ error: "No session" }, { status: 401 });
@@ -14,7 +15,7 @@ export async function GET() {
     clientId: session.user.id,
   });
 
-  console.log("tokenRequestData", tokenRequestData);
+  req.log.info("tokenRequestData", { tokenRequestData });
 
   return Response.json(tokenRequestData);
-}
+});
