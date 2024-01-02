@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import * as Ably from "ably";
 import { AblyProvider, useChannel } from "ably/react";
-import { useEffect, useState } from "react";
-import { type UseComboboxStateChangeTypes, useCombobox } from "downshift";
 import { useSession } from "next-auth/react";
+import { type UseComboboxStateChangeTypes, useCombobox } from "downshift";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 
 import { api } from "@/trpc/react";
@@ -15,10 +16,10 @@ import {
   // endGameSchema,
 } from "@/lib/game-state";
 import { useDebounce } from "@/lib/useDebounce";
+import { Input } from "@/app/_components/ui/input";
+import { Button, buttonVariants } from "@/app/_components/ui/button";
 import { cn } from "@/lib/utils";
 import { Media, MediaWithLinks } from "./battle-ui";
-import { Input } from "@/app/_components/ui/input";
-import { Button } from "@/app/_components/ui/button";
 
 const client = new Ably.Realtime.Promise({
   authUrl: "/api/ably",
@@ -27,182 +28,203 @@ const client = new Ably.Realtime.Promise({
 export default function BattleClient() {
   return (
     <AblyProvider client={client}>
-      <BattlePage />
+      {/* <BattlePage /> */}
+      <NewBattlePage />
     </AblyProvider>
   );
 }
 
-function BattlePage() {
-  const [isGameOver, setIsGameOver] = useState(false); // TODO: don't query room code if game is over
-
-  const room = api.room.join.useQuery(undefined, { enabled: !isGameOver });
-
-  const quit = api.room.leave.useMutation();
-
-  const isOpponentPresent = room.data?.gameState.players.length === 2;
-
-  return (
-    <>
-      {!isGameOver && !isOpponentPresent && (
-        <div>Waiting for an opponent...</div>
-      )}
-      <div>Room Code: {room.data?.roomCode}</div>
-
-      {isGameOver && (
-        <div>
-          <div>Game Over</div>
-          <Button
-            onClick={() => {
-              setIsGameOver(false);
-            }}
-          >
-            New Game
-          </Button>
-        </div>
-      )}
-
-      {!isGameOver && (
-        <Button
-          onClick={() => {
-            quit.mutate();
-          }}
-        >
-          Quit Game
-        </Button>
-      )}
-
-      {!!room.data && (
-        <Battle
-          initialChannelName={room.data.roomCode}
-          initialGameState={room.data.gameState}
-          isGameOver={isGameOver}
-          setIsGameOver={setIsGameOver}
-        />
-      )}
-    </>
-  );
-}
-
-function Battle({
-  initialChannelName,
-  initialGameState,
-  isGameOver,
-  setIsGameOver,
-}: {
-  initialChannelName: string;
-  initialGameState: GameState;
-  isGameOver: boolean;
-  setIsGameOver: (isGameOver: boolean) => void;
-}) {
-  const [channelName, setChannelName] = useState(initialChannelName);
-  useEffect(() => {
-    setChannelName(initialChannelName);
-  }, [initialChannelName]);
-
-  const [gameState, setGameState] = useState(initialGameState);
-  useEffect(() => {
-    setGameState(initialGameState);
-  }, [initialGameState]);
-
-  const isOpponentPresent = gameState.players.length === 2;
-
-  const [animationParent] = useAutoAnimate();
-
-  const [query, setQuery] = useState("");
-  const debouncedQuery = useDebounce(query);
+function NewBattlePage() {
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [gameState, setGameState] = useState<GameState>();
 
   const { data: session } = useSession({ required: true });
-  const isPlayerTurn = getIsPlayerTurn(gameState, session?.user.id);
+
+  const room = api.room.join.useQuery(undefined, {
+    enabled: !isGameOver,
+    onSuccess: (data) => {
+      setGameState(data.gameState);
+    },
+  });
 
   const opponent = api.room.getOpponent.useQuery(undefined, {
     enabled: !isGameOver,
   });
 
-  const search = api.game.search.useQuery(
-    { query: debouncedQuery },
-    { enabled: !!debouncedQuery && !isGameOver, keepPreviousData: true },
-  );
+  const isOpponentPresent = gameState?.players.length === 2;
 
-  const submitAnswer = api.game.submitAnswer.useMutation();
+  const channelParams = {
+    channelName: room.data?.roomCode ?? "",
+    skip: !room.data?.roomCode,
+  };
 
-  useChannel(channelName, "update", (message) => {
+  useChannel(channelParams, "update", (message) => {
     console.log("channel update message", message);
 
     const parsedMessage = gameStateSchema.parse(message.data);
     setGameState(parsedMessage);
   });
 
-  useChannel(channelName, "end-game", (message) => {
+  useChannel(channelParams, "end-game", (message) => {
     console.log("channel end-game message", message);
     // const parsedMessage = endGameSchema.parse(message.data);
     setIsGameOver(true);
   });
 
+  return (
+    <>
+      <div>Room Code: {!!room.data ? room.data?.roomCode : "loading..."}</div>
+      <MenuButtons isGameOver={isGameOver} setIsGameOver={setIsGameOver} />
+      <PlayerNames
+        isGameOver={isGameOver}
+        isOpponentPresent={isOpponentPresent}
+        player={session?.user.name}
+        opponent={opponent.data?.name}
+      />
+      <PlayerTurn
+        isGameOver={isGameOver}
+        isOpponentPresent={isOpponentPresent}
+        isPlayerTurn={getIsPlayerTurn(gameState, session?.user.id)}
+      />
+      <Board
+        gameState={gameState}
+        isOpponentPresent={isOpponentPresent}
+        isGameOver={isGameOver}
+        setIsGameOver={setIsGameOver}
+      />
+    </>
+  );
+}
+
+function MenuButtons(props: {
+  isGameOver: boolean;
+  setIsGameOver: (isGameOver: boolean) => void;
+}) {
+  const quit = api.room.leave.useMutation();
+
+  return (
+    <div className="flex justify-between">
+      {props.isGameOver ? (
+        <NewGameButton setIsGameOver={props.setIsGameOver} />
+      ) : (
+        <Button
+          onClick={() => {
+            quit.mutate();
+            props.setIsGameOver(true);
+          }}
+        >
+          Quit Game
+        </Button>
+      )}
+      <Button
+        onClick={() => {
+          alert("How to Play\nTODO: implement");
+        }}
+      >
+        How to Play
+      </Button>
+    </div>
+  );
+}
+
+function NewGameButton(props: {
+  setIsGameOver: (isGameOver: boolean) => void;
+}) {
+  return (
+    <Button
+      onClick={() => {
+        props.setIsGameOver(false);
+      }}
+    >
+      New Game
+    </Button>
+  );
+}
+
+function PlayerNames(props: {
+  isGameOver: boolean;
+  isOpponentPresent: boolean;
+  player: string | null | undefined;
+  opponent: string | null | undefined;
+}) {
+  if (!props.isGameOver && !props.isOpponentPresent)
+    return <div>Waiting for an opponent...</div>;
+
+  return (
+    <div className="flex">
+      <div className="w-1/3">{props.player ?? "You"}</div>
+      <div className="w-1/3 text-center">vs</div>
+      <div className="w-1/3 text-right">{props.opponent ?? "Opponent"}</div>
+    </div>
+  );
+}
+
+function PlayerTurn(props: {
+  isGameOver: boolean;
+  isOpponentPresent: boolean;
+  isPlayerTurn: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebounce(query, 250);
+
+  const search = api.game.search.useQuery(
+    { query: debouncedQuery },
+    { enabled: !!debouncedQuery, keepPreviousData: true },
+  );
+
+  const submit = api.game.submitAnswer.useMutation();
+
   const {
     isOpen,
-    getMenuProps,
-    getInputProps,
     highlightedIndex,
+    getInputProps,
+    getMenuProps,
     getItemProps,
-    selectedItem,
-    selectItem,
+    reset,
   } = useCombobox({
-    defaultHighlightedIndex: 0,
     items: search.data?.results ?? [],
-    itemToString: (item) => item?.title ?? "",
+    itemToString: (item) => item?.label ?? "",
+    defaultHighlightedIndex: 0,
     inputValue: query,
+    defaultSelectedItem: null,
     onStateChange: (e) => {
-      // TODO: answer isn't submitted on enter keypress, need to fix
+      const InputKeyDownEnter =
+        "__input_keydown_enter__" as UseComboboxStateChangeTypes.InputKeyDownEnter;
+      const ItemClick =
+        "__item_click__" as UseComboboxStateChangeTypes.ItemClick;
 
-      if (
-        (e.type ===
-          ("__input_keydown_enter__" as UseComboboxStateChangeTypes.InputKeyDownEnter) ||
-          e.type ===
-            ("__item_click__" as UseComboboxStateChangeTypes.ItemClick)) &&
-        !!e.selectedItem
-      ) {
+      if (e.type === InputKeyDownEnter || e.type === ItemClick) {
         console.log("onStateChange", e);
+        submit.mutate({ answer: search.data?.results[highlightedIndex] });
         setQuery("");
-        submitAnswer.mutate({ answer: e.selectedItem });
+        reset();
       }
     },
   });
 
   return (
-    <div className={cn(!isOpponentPresent && "hidden")}>
-      <div className="flex">
-        <div className="w-1/3">{session?.user.name ?? "You"}</div>
-        <div className="w-1/3 text-center">vs</div>
-        <div className="w-1/3 text-right">
-          {opponent.data?.name ?? "Opponent"}
-        </div>
-      </div>
-      {!isGameOver && !isPlayerTurn && <div>Opponent's Turn</div>}
-
-      <form
-        onSubmit={(e) => {
-          console.log("form onSubmit");
-          e.preventDefault();
-          setQuery("");
-          if (!selectedItem) return;
-          submitAnswer.mutate({ answer: selectedItem });
-          selectItem(null);
-        }}
-        className={cn((!isPlayerTurn || isGameOver) && "hidden")}
+    <div
+      className={cn((props.isGameOver || !props.isOpponentPresent) && "hidden")}
+    >
+      <div
+        className={cn(
+          "rounded-lg bg-green-500 p-3 text-center",
+          props.isPlayerTurn && "hidden",
+        )}
       >
-        <div className="flex">
-          <Input
-            {...getInputProps({
-              type: "text",
-              placeholder: "Movie or TV Show",
-              value: query,
-              onChange: (e) => {
-                setQuery(e.currentTarget.value);
-              },
-            })}
-          />
-          <Button type="submit">Submit</Button>
-        </div>
+        Opponent's Turn
+      </div>
+      <div className={cn(!props.isPlayerTurn && "hidden")}>
+        <Input
+          {...getInputProps({
+            type: "search",
+            placeholder: "Movie or TV Show",
+            value: query,
+            onChange: (e) => {
+              setQuery(e.currentTarget.value);
+            },
+          })}
+        />
         <ul
           {...getMenuProps({
             className: cn(
@@ -212,32 +234,71 @@ function Battle({
             ),
           })}
         >
-          {isOpen &&
-            search.data?.results.map((item, index) => {
-              return (
-                <li
-                  key={item.id}
-                  {...getItemProps({
-                    item,
-                    index,
-                    className: cn(highlightedIndex === index && "bg-blue-300"),
-                  })}
-                >{`${item.title} (${item.year})`}</li>
-              );
-            })}
+          {search.data?.results.map((item, index) => (
+            <li
+              {...getItemProps({
+                item,
+                index,
+                className: cn(highlightedIndex === index && "bg-blue-100"),
+              })}
+              key={item.key}
+            >
+              {item.label}
+            </li>
+          ))}
         </ul>
-      </form>
-
-      <div className="flex-col" ref={animationParent}>
-        {gameState.media.map((media) => (
-          <MediaWithLinks
-            key={media.id}
-            title={media.title}
-            links={media.links}
-          />
-        ))}
-        <Media title={gameState.initialTitle} />
       </div>
+    </div>
+  );
+}
+
+function Board(props: {
+  isOpponentPresent: boolean;
+  isGameOver: boolean;
+  setIsGameOver: (isGameOver: boolean) => void;
+  gameState: GameState | undefined;
+}) {
+  const [animationParent] = useAutoAnimate();
+
+  if (!props.gameState || !props.isOpponentPresent) return null;
+
+  return (
+    <div className="flex-col" ref={animationParent}>
+      <GameOverCard
+        isGameOver={props.isGameOver}
+        setIsGameOver={props.setIsGameOver}
+      />
+      {props.gameState.media.map((media) => (
+        <MediaWithLinks
+          key={media.key}
+          label={media.label}
+          links={media.links}
+        />
+      ))}
+      <Media label={props.gameState.initialLabel} />
+    </div>
+  );
+}
+
+function GameOverCard(props: {
+  isGameOver: boolean;
+  setIsGameOver: (isGameOver: boolean) => void;
+}) {
+  if (!props.isGameOver) return null;
+
+  return (
+    <div className="flex-col">
+      <div className="w-full flex-col rounded-lg bg-purple-500 p-5 text-center">
+        <div>Game Over</div>
+        <div>You Won/Lost</div>
+        <div className="flex justify-evenly">
+          <Link className={buttonVariants()} href="/">
+            Go Home
+          </Link>
+          <NewGameButton setIsGameOver={props.setIsGameOver} />
+        </div>
+      </div>
+      <div className="mx-auto h-32 w-1 bg-green-500" />
     </div>
   );
 }

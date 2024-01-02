@@ -25,15 +25,15 @@ export const roomRouter = createTRPCRouter({
         `Set player "${ctx.session.user.id}" to open room ${newRoomCode}`,
       );
 
-      const initialTitle = await ctx.redis.get("initial-title", z.string());
+      const initialLabel = await ctx.redis.get("initial-title", z.string());
       const currentCredits = await ctx.redis.get(
         "initial-credits",
         z.array(z.number()),
       );
 
-      if (!initialTitle || !currentCredits) {
+      if (!initialLabel || !currentCredits) {
         console.log(
-          `Initial game info not set: title = ${initialTitle}, credits =`,
+          `Initial game info not set: label = ${initialLabel}, credits =`,
           currentCredits,
         );
         throw new TRPCError({
@@ -42,11 +42,11 @@ export const roomRouter = createTRPCRouter({
         });
       }
 
-      console.log(`Retrieved initial game info: title = "${initialTitle}"`);
+      console.log(`Retrieved initial game info: label = "${initialLabel}"`);
 
       const newGameState = createNewGameState(
         ctx.session.user.id,
-        initialTitle,
+        initialLabel,
         currentCredits,
       );
 
@@ -198,6 +198,12 @@ export const roomRouter = createTRPCRouter({
 
     if (!roomCode) return;
 
+    const channel = ctx.realtimeRestClient.channels.get(roomCode);
+    await channel.publish("end-game", {
+      reason: EndGameReason.PlayerLeft,
+      player: ctx.session.user.id,
+    });
+
     const gameState = await ctx.redis.get(
       `room:${roomCode}:game-state`,
       gameStateSchema,
@@ -214,35 +220,27 @@ export const roomRouter = createTRPCRouter({
       `player:${gameState.players[1]}:room-code`,
       `room:${roomCode}:game-state`,
     );
-
-    const channel = ctx.realtimeRestClient.channels.get(roomCode);
-    await channel.publish("end-game", {
-      reason: EndGameReason.PlayerLeft,
-      player: ctx.session.user.id,
-    });
   }),
   getOpponent: protectedProcedure.query(async ({ ctx }) => {
-    const emptyName = { name: "Opponent" };
-
     const roomCode = await ctx.redis.get(
       `player:${ctx.session.user.id}:room-code`,
       z.string(),
     );
 
-    if (!roomCode) return emptyName;
+    if (!roomCode) return {};
 
     const gameState = await ctx.redis.get(
       `room:${roomCode}:game-state`,
       gameStateSchema,
     );
 
-    if (!gameState) return emptyName;
+    if (!gameState) return {};
 
     const opponentId = gameState.players.find(
       (player) => player !== ctx.session.user.id,
     );
 
-    if (!opponentId) return emptyName;
+    if (!opponentId) return {};
 
     const opponent = await ctx.db.query.users.findFirst({
       where: (users, { eq }) => eq(users.id, opponentId),
@@ -257,6 +255,6 @@ export const roomRouter = createTRPCRouter({
         message: "Opponent not found in database",
       });
 
-    return { name: opponent.name ?? emptyName.name };
+    return { name: opponent.name };
   }),
 });

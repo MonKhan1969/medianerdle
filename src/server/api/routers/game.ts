@@ -1,16 +1,16 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 
-import { env } from "@/env";
 import { TMDB } from "tmdb-ts";
+import { env } from "@/env";
 import { TRPCError } from "@trpc/server";
 import { gameStateSchema, getIsPlayerTurn } from "@/lib/game-state";
 
 const mediaSchema = z.object({
+  key: z.string(),
   id: z.number(),
-  title: z.string(),
+  label: z.string(),
   mediaType: z.string(),
-  year: z.string(),
 });
 
 type Media = z.infer<typeof mediaSchema>;
@@ -30,9 +30,11 @@ export const gameRouter = createTRPCRouter({
           return [
             ...acc,
             {
+              key: `${result.media_type}-${result.id}`,
               id: result.id,
-              title: result.title,
-              year: result.release_date.slice(0, 4) || "N/A",
+              label: `${result.title} (${
+                result.release_date.slice(0, 4) || "N/A"
+              })`,
               mediaType: "movie",
             },
           ];
@@ -42,9 +44,11 @@ export const gameRouter = createTRPCRouter({
           return [
             ...acc,
             {
+              key: `${result.media_type}-${result.id}`,
               id: result.id,
-              title: result.name,
-              year: result.first_air_date.slice(0, 4) || "N/A",
+              label: `${result.name} (${
+                result.first_air_date.slice(0, 4) || "N/A"
+              })`,
               mediaType: "tv",
             },
           ];
@@ -59,11 +63,11 @@ export const gameRouter = createTRPCRouter({
       return { results: mediaResults };
     }),
   submitAnswer: protectedProcedure
-    .input(z.object({ answer: mediaSchema }))
+    .input(z.object({ answer: z.union([mediaSchema, z.undefined()]) }))
     .mutation(async ({ ctx, input }) => {
       // TODO: get time and compare to time in redis
 
-      const answerId = `${input.answer.mediaType}-${input.answer.id}`;
+      if (!input.answer) return;
 
       const roomCode = await ctx.redis.get(
         `player:${ctx.session.user.id}:room-code`,
@@ -95,18 +99,15 @@ export const gameRouter = createTRPCRouter({
           message: "Not user's turn",
         });
 
-      // TODO: make more robust by using id instead of title and year
-      if (
-        gameState.initialTitle ===
-        `${input.answer.title} (${input.answer.year})`
-      )
+      // TODO: make more robust by using id instead of label
+      if (gameState.initialLabel === input.answer.label)
         return {
           success: false,
           message: "This media has already been played",
         };
 
       const isMediaAlreadyPlayed = gameState.media.find(
-        (item) => item.id === answerId,
+        (item) => item.key === input.answer?.key, // don't know why `input.answer` could be undefined
       );
 
       if (isMediaAlreadyPlayed)
@@ -152,8 +153,8 @@ export const gameRouter = createTRPCRouter({
       gameState.currentCredits = peopleIds;
       gameState.media = [
         {
-          id: answerId,
-          title: `${input.answer.title} (${input.answer.year})`,
+          key: input.answer.key,
+          label: input.answer.label,
           links,
         },
         ...gameState.media,

@@ -4,15 +4,15 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 export function MediaWithLinks({
-  title,
+  label,
   links,
 }: {
-  title: string;
+  label: string;
   links: { id: number; name: string }[];
 }) {
   return (
     <div className="flex-col">
-      <Media title={title} />
+      <Media label={label} />
       <div className="mx-auto h-12 w-1 bg-green-500" />
       <PeopleLinks links={links} />
       <div className="mx-auto h-12 w-1 bg-green-500" />
@@ -20,9 +20,9 @@ export function MediaWithLinks({
   );
 }
 
-export function Media({ title }: { title: string }) {
+export function Media({ label }: { label: string }) {
   return (
-    <div className="w-full rounded-lg bg-red-500 p-5 text-center">{title}</div>
+    <div className="w-full rounded-lg bg-red-500 p-5 text-center">{label}</div>
   );
 }
 

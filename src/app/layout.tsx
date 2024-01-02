@@ -53,8 +53,10 @@ async function Header() {
   const session = await getServerAuthSession();
 
   return (
-    <header className="container">
-      <Link href="/">MediaNerdle</Link>
+    <header className="container flex">
+      <Link href="/" className="mr-auto">
+        MediaNerdle
+      </Link>
       {!!session?.user.name && <div>{session.user.name}</div>}
       <Link
         className={buttonVariants()}

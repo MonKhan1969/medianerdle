@@ -2,11 +2,11 @@ import { z } from "zod";
 
 export const gameStateSchema = z.object({
   players: z.array(z.string()),
-  initialTitle: z.string(),
+  initialLabel: z.string(),
   media: z.array(
     z.object({
-      id: z.string(),
-      title: z.string(),
+      key: z.string(),
+      label: z.string(),
       links: z.array(z.object({ id: z.number(), name: z.string() })),
     }),
   ),
@@ -17,22 +17,22 @@ export type GameState = z.infer<typeof gameStateSchema>;
 
 export function createNewGameState(
   player: string,
-  initialTitle: string,
+  initialLabel: string,
   currentCredits: number[],
 ) {
   return {
     players: [player],
-    initialTitle,
+    initialLabel,
     media: [],
     currentCredits,
   } as GameState;
 }
 
 export function getIsPlayerTurn(
-  gameState: GameState,
+  gameState: GameState | undefined,
   player: string | undefined,
 ) {
-  if (!player) return false;
+  if (!gameState || !player) return false;
 
   return gameState.players[gameState.media.length % 2] === player;
 }
