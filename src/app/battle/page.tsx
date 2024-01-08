@@ -1,6 +1,6 @@
 import dynamic from "next/dynamic";
 
-const BattleClient = dynamic(() => import("./BattleClient"), {
+const BattleClient = dynamic(() => import("./battle-client"), {
   ssr: false,
 });
 
