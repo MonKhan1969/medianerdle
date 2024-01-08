@@ -8,6 +8,7 @@ import {
   gameStateSchema,
   EndGameReason,
 } from "@/lib/game-state";
+import { validateRedisSchema } from "@/lib/utils";
 
 export const roomRouter = createTRPCRouter({
   join: protectedProcedure.query(async ({ ctx }) => {
@@ -25,9 +26,12 @@ export const roomRouter = createTRPCRouter({
         `Set player "${ctx.session.user.id}" to open room ${newRoomCode}`,
       );
 
-      const initialLabel = await ctx.redis.get("initial-title", z.string());
-      const currentCredits = await ctx.redis.get(
-        "initial-credits",
+      const initialLabel = validateRedisSchema(
+        await ctx.redis.get("initial-title"),
+        z.string(),
+      );
+      const currentCredits = validateRedisSchema(
+        await ctx.redis.get("initial-credits"),
         z.array(z.number()),
       );
 
@@ -61,8 +65,8 @@ export const roomRouter = createTRPCRouter({
 
     console.log(`Player "${ctx.session.user.id}" joining room`);
 
-    const currentRoomCode = await ctx.redis.get(
-      `player:${ctx.session.user.id}:room-code`,
+    const currentRoomCode = validateRedisSchema(
+      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
       z.string(),
     );
 
@@ -72,8 +76,8 @@ export const roomRouter = createTRPCRouter({
         `Player "${ctx.session.user.id}" is already in room ${currentRoomCode}`,
       );
 
-      const gameState = await ctx.redis.get(
-        `room:${currentRoomCode}:game-state`,
+      const gameState = validateRedisSchema(
+        await ctx.redis.get(`room:${currentRoomCode}:game-state`),
         gameStateSchema,
       );
 
@@ -104,7 +108,10 @@ export const roomRouter = createTRPCRouter({
     console.log("Checking for open room");
 
     if (await ctx.lock.acquire({ retry: { attempts: 20, delay: 100 } })) {
-      const openRoomCode = await ctx.redis.get("open-room-code", z.string());
+      const openRoomCode = validateRedisSchema(
+        await ctx.redis.get("open-room-code"),
+        z.string(),
+      );
 
       if (!openRoomCode) {
         console.log("No open room found");
@@ -125,8 +132,8 @@ export const roomRouter = createTRPCRouter({
       console.log('Deleted "open-room-code" key');
 
       // join room
-      const gameState = await ctx.redis.get(
-        `room:${openRoomCode}:game-state`,
+      const gameState = validateRedisSchema(
+        await ctx.redis.get(`room:${openRoomCode}:game-state`),
         gameStateSchema,
       );
 
@@ -172,7 +179,7 @@ export const roomRouter = createTRPCRouter({
 
       console.log(`Getting channel ${openRoomCode}`);
 
-      const channel = ctx.realtimeRestClient.channels.get(openRoomCode);
+      const channel = ctx.ablyClient.channels.get(openRoomCode);
 
       console.log(`Publishing "update" event to channel ${openRoomCode}`);
 
@@ -191,21 +198,21 @@ export const roomRouter = createTRPCRouter({
   leave: protectedProcedure.mutation(async ({ ctx }) => {
     // TODO: make this work when game isn't active / there is no opponent
 
-    const roomCode = await ctx.redis.get(
-      `player:${ctx.session.user.id}:room-code`,
+    const roomCode = validateRedisSchema(
+      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
       z.string(),
     );
 
     if (!roomCode) return;
 
-    const channel = ctx.realtimeRestClient.channels.get(roomCode);
+    const channel = ctx.ablyClient.channels.get(roomCode);
     await channel.publish("end-game", {
       reason: EndGameReason.PlayerLeft,
       player: ctx.session.user.id,
     });
 
-    const gameState = await ctx.redis.get(
-      `room:${roomCode}:game-state`,
+    const gameState = validateRedisSchema(
+      await ctx.redis.get(`room:${roomCode}:game-state`),
       gameStateSchema,
     );
 
@@ -222,15 +229,15 @@ export const roomRouter = createTRPCRouter({
     );
   }),
   getOpponent: protectedProcedure.query(async ({ ctx }) => {
-    const roomCode = await ctx.redis.get(
-      `player:${ctx.session.user.id}:room-code`,
+    const roomCode = validateRedisSchema(
+      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
       z.string(),
     );
 
     if (!roomCode) return {};
 
-    const gameState = await ctx.redis.get(
-      `room:${roomCode}:game-state`,
+    const gameState = validateRedisSchema(
+      await ctx.redis.get(`room:${roomCode}:game-state`),
       gameStateSchema,
     );
 

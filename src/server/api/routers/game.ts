@@ -10,6 +10,7 @@ import {
   getIsJobValid,
   getIsPlayerTurn,
 } from "@/lib/game-state";
+import { validateRedisSchema } from "@/lib/utils";
 
 const mediaSchema = z.object({
   key: z.string(),
@@ -74,8 +75,8 @@ export const gameRouter = createTRPCRouter({
 
       if (!input.answer) return;
 
-      const roomCode = await ctx.redis.get(
-        `player:${ctx.session.user.id}:room-code`,
+      const roomCode = validateRedisSchema(
+        await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
         z.string(),
       );
 
@@ -85,8 +86,8 @@ export const gameRouter = createTRPCRouter({
           message: "Room code not found",
         });
 
-      const gameState = await ctx.redis.get(
-        `room:${roomCode}:game-state`,
+      const gameState = validateRedisSchema(
+        await ctx.redis.get(`room:${roomCode}:game-state`),
         gameStateSchema,
       );
 
@@ -185,7 +186,7 @@ export const gameRouter = createTRPCRouter({
 
       await ctx.redis.set(`room:${roomCode}:game-state`, gameState);
 
-      const channel = ctx.realtimeRestClient.channels.get(roomCode);
+      const channel = ctx.ablyClient.channels.get(roomCode);
       await channel.publish("update", gameState);
 
       return { success: true };
