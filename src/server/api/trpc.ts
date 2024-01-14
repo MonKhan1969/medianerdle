@@ -12,7 +12,8 @@ import superjson from "superjson";
 import { ZodError } from "zod";
 
 import { getServerAuthSession } from "@/server/auth";
-import { db, redis, lock } from "@/server/db";
+import { db } from "@/server/db";
+import { redis, lock } from "@/server/redis";
 import { ablyClient } from "@/server/ably";
 
 /**
