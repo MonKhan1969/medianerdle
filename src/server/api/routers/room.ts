@@ -3,191 +3,156 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import {
-  createNewGameState,
-  gameStateSchema,
-  EndGameReason,
-} from "@/lib/game-state";
-import { validateRedisSchema } from "@/lib/utils";
 
 export const roomRouter = createTRPCRouter({
   join: protectedProcedure.query(async ({ ctx }) => {
     async function createNewRoom() {
-      console.log("Creating new room");
+      console.log("Getting initial game info");
 
-      const newRoomCode = createId();
-
-      await ctx.redis.mset({
-        ["open-room-code"]: newRoomCode,
-        [`player:${ctx.session.user.id}:room-code`]: newRoomCode,
-      });
-
-      console.log(
-        `Set player "${ctx.session.user.id}" to open room ${newRoomCode}`,
-      );
-
-      const initialLabel = validateRedisSchema(
-        await ctx.redis.get("initial-title"),
-        z.string(),
-      );
-      const currentCredits = validateRedisSchema(
-        await ctx.redis.get("initial-credits"),
-        z.array(z.number()),
-      );
-
-      if (!initialLabel || !currentCredits) {
-        console.log(
-          `Initial game info not set: label = ${initialLabel}, credits =`,
-          currentCredits,
+      const [initialKey, initialLabel, initialCredits] = z
+        .tuple([
+          z.string().nullable(),
+          z.string().nullable(),
+          z.array(z.number()).nullable(),
+        ])
+        .parse(
+          await ctx.redis.mget(
+            "initial:key",
+            "initial:label",
+            "initial:credits",
+          ),
         );
+
+      if (!initialKey || !initialLabel || !initialCredits) {
+        console.log(
+          "Initial game info not set:",
+          `key = ${initialKey},`,
+          `label = ${initialLabel},`,
+          `credits.length = ${initialCredits?.length ?? 0}`,
+        );
+
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Initial game info not set",
         });
       }
 
-      console.log(`Retrieved initial game info: label = "${initialLabel}"`);
+      console.log("Creating new room");
 
-      const newGameState = createNewGameState(
-        ctx.session.user.id,
-        initialLabel,
-        currentCredits,
-      );
+      const newRoomCode = createId();
 
-      await ctx.redis.set(`room:${newRoomCode}:game-state`, newGameState);
+      console.log(`New room code: ${newRoomCode}`);
 
-      console.log(
-        `Finished creating new room. Set game state for room ${newRoomCode}:`,
-      );
+      const tx = ctx.redis.pipeline();
 
-      return { newRoomCode, newGameState };
+      tx.mset({
+        ["open-room-code"]: newRoomCode,
+        [`player:${ctx.session.user.id}:room-code`]: newRoomCode,
+        [`room:${newRoomCode}:current-credits`]: initialCredits,
+      });
+
+      tx.lpush(`room:${newRoomCode}:players`, ctx.session.user.id);
+
+      tx.lpush(`room:${newRoomCode}:board-state`, {
+        key: initialKey,
+        label: initialLabel,
+        links: [],
+      });
+
+      await tx.exec();
+
+      console.log("Done creating new room");
+
+      return { code: newRoomCode };
     }
 
-    console.log(`Player "${ctx.session.user.id}" joining room`);
-
-    const currentRoomCode = validateRedisSchema(
-      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
-      z.string(),
+    console.log(
+      `Player "${ctx.session.user.name}" (${ctx.session.user.id}) is joining a room`,
     );
 
     // check if player is already in a room
+    const currentRoomCode = z
+      .string()
+      .nullable()
+      .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
+
     if (!!currentRoomCode) {
+      // player is already in a room
       console.log(
-        `Player "${ctx.session.user.id}" is already in room ${currentRoomCode}`,
+        `Player "${ctx.session.user.name}" (${ctx.session.user.id}) is already in room ${currentRoomCode}`,
       );
 
-      const gameState = validateRedisSchema(
-        await ctx.redis.get(`room:${currentRoomCode}:game-state`),
-        gameStateSchema,
+      // check for game state
+      const boardState = await ctx.redis.lrange(
+        `room:${currentRoomCode}:board-state`,
+        0,
+        -1,
       );
 
-      // check if game state exists
-      if (!gameState) {
-        console.log(
-          `Game state for room ${currentRoomCode} does not exist anymore`,
-        );
-        // room does not exist anymore, could have expired
-        await ctx.redis.del(`room:${currentRoomCode}:game-state`);
+      if (!!boardState) {
+        // game is in progress
 
-        console.log(`Deleted game state for room ${currentRoomCode}`);
+        const secondPlayer = z
+          .string()
+          .nullable()
+          .parse(await ctx.redis.lindex(`room:${currentRoomCode}:players`, 1));
 
-        // create new room
-        const { newRoomCode, newGameState } = await createNewRoom();
-
-        return { roomCode: newRoomCode, gameState: newGameState };
+        return { code: currentRoomCode, isGamePlaying: !!secondPlayer };
       }
 
-      console.log(`Game state for room ${currentRoomCode} exists`);
-
-      // room exists
-      return { roomCode: currentRoomCode, gameState };
+      // board doesn't exist, so delete everything with room code and join new room
+      await ctx.redis.del(
+        `player:${ctx.session.user.id}:room-code`,
+        `room:${currentRoomCode}:players`,
+        `room:${currentRoomCode}:current-credits`,
+      );
     }
 
-    // check for open room
+    // player is not in a room
+    console.log(
+      `Player "${ctx.session.user.name}" (${ctx.session.user.id}) is not in a room`,
+    );
 
-    console.log("Checking for open room");
-
-    if (await ctx.lock.acquire({ retry: { attempts: 20, delay: 100 } })) {
-      const openRoomCode = validateRedisSchema(
-        await ctx.redis.get("open-room-code"),
-        z.string(),
-      );
+    if (await ctx.lock.acquire()) {
+      const openRoomCode = z
+        .string()
+        .nullable()
+        .parse(await ctx.redis.get("open-room-code"));
 
       if (!openRoomCode) {
-        console.log("No open room found");
+        // no open room
         // create new room
-        const { newRoomCode, newGameState } = await createNewRoom();
+        const { code } = await createNewRoom();
 
-        console.log("Releasing lock");
         await ctx.lock.release();
-        console.log("Released lock");
 
-        return { roomCode: newRoomCode, gameState: newGameState };
+        return { code, isGamePlaying: false };
       }
 
-      console.log(`Found open room: ${openRoomCode}`);
-
-      // open room exists
-      await ctx.redis.del("open-room-code");
-      console.log('Deleted "open-room-code" key');
-
-      // join room
-      const gameState = validateRedisSchema(
-        await ctx.redis.get(`room:${openRoomCode}:game-state`),
-        gameStateSchema,
-      );
-
-      console.log(`Retrieved game state for room ${openRoomCode}`);
-
-      if (!gameState) {
-        console.log(`Game state for room ${openRoomCode} does not exist`);
-        // room does not exist anymore, could have expired
-        await ctx.redis.del(`room:${currentRoomCode}:game-state`);
-
-        // create new room
-        const { newRoomCode, newGameState } = await createNewRoom();
-
-        console.log("Releasing lock");
-        await ctx.lock.release();
-        console.log("Released lock");
-
-        return { roomCode: newRoomCode, gameState: newGameState };
-      }
-
-      console.log(`Game state for room ${openRoomCode} exists`);
-
-      await ctx.redis.set(
-        `player:${ctx.session.user.id}:room-code`,
-        openRoomCode,
-      );
-
-      // randomize player order
+      // join open room
+      const tx = ctx.redis.pipeline();
+      tx.del("open-room-code");
+      tx.set(`player:${ctx.session.user.id}:room-code`, openRoomCode);
       if (Math.random() < 0.5) {
-        console.log(`Player "${ctx.session.user.id}" is second player`);
-        gameState.players.push(ctx.session.user.id);
+        tx.rpush(`room:${openRoomCode}:players`, ctx.session.user.id);
       } else {
-        console.log(`Player "${ctx.session.user.id}" is first player`);
-        gameState.players.unshift(ctx.session.user.id);
+        tx.lpush(`room:${openRoomCode}:players`, ctx.session.user.id);
       }
+      await tx.exec();
 
-      await ctx.redis.set(`room:${openRoomCode}:game-state`, gameState);
-      console.log(`Set game state for room ${openRoomCode}`);
-
-      console.log("Releasing lock");
       await ctx.lock.release();
-      console.log("Released lock");
 
-      console.log(`Getting channel ${openRoomCode}`);
+      // send realtime update
+      console.log('Publishing "join" event');
 
       const channel = ctx.ablyClient.channels.get(openRoomCode);
+      await channel.publish("join", ctx.session.user.id);
 
-      console.log(`Publishing "update" event to channel ${openRoomCode}`);
+      console.log('Published "join" event');
 
-      await channel.publish("update", gameState);
+      console.log("Done joining room");
 
-      console.log(`Published "update" event to channel ${openRoomCode}`);
-
-      return { roomCode: openRoomCode, gameState };
+      return { code: openRoomCode, isGamePlaying: true };
     } else {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
@@ -195,59 +160,100 @@ export const roomRouter = createTRPCRouter({
       });
     }
   }),
-  leave: protectedProcedure.mutation(async ({ ctx }) => {
-    // TODO: make this work when game isn't active / there is no opponent
+  quit: protectedProcedure.mutation(async ({ ctx }) => {
+    if (await ctx.lock.acquire()) {
+      const roomCode = z
+        .string()
+        .nullable()
+        .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
 
-    const roomCode = validateRedisSchema(
-      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
-      z.string(),
-    );
+      if (!roomCode) {
+        await ctx.lock.release();
+        return;
+      }
 
-    if (!roomCode) return;
+      await ctx.redis.del(
+        `room:${roomCode}:current-credits`,
+        `room:${roomCode}:board-state`,
+      );
 
-    const channel = ctx.ablyClient.channels.get(roomCode);
-    await channel.publish("end-game", {
-      reason: EndGameReason.PlayerLeft,
-      player: ctx.session.user.id,
-    });
+      const openRoomCode = z
+        .string()
+        .nullable()
+        .parse(await ctx.redis.get("open-room-code"));
 
-    const gameState = validateRedisSchema(
-      await ctx.redis.get(`room:${roomCode}:game-state`),
-      gameStateSchema,
-    );
+      if (openRoomCode === roomCode) {
+        await ctx.redis.del(
+          "open-room-code",
+          `player:${ctx.session.user.id}:room-code`,
+          `room:${roomCode}:players`,
+        );
+        await ctx.lock.release();
+        return;
+      }
 
-    if (!gameState) {
-      await ctx.redis.del(`player:${ctx.session.user.id}:room-code`);
+      const players = await ctx.redis.lrange(`room:${roomCode}:players`, 0, -1);
 
-      return;
+      if (!players) {
+        await ctx.lock.release();
+        return;
+      }
+
+      await ctx.redis.del(
+        `room:${roomCode}:players`,
+        `player:${players[0]}:room-code`,
+        `player:${players[1]}:room-code`,
+      );
+
+      await ctx.lock.release();
+
+      const channel = ctx.ablyClient.channels.get(roomCode);
+      await channel.publish("end", ctx.session.user.id);
+    } else {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Lock error",
+      });
     }
+  }),
+  getPlayers: protectedProcedure.query(async ({ ctx }) => {
+    const roomCode = z
+      .string()
+      .nullable()
+      .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
 
-    await ctx.redis.del(
-      `player:${gameState.players[0]}:room-code`,
-      `player:${gameState.players[1]}:room-code`,
-      `room:${roomCode}:game-state`,
-    );
+    if (!roomCode) return { ids: [] };
+
+    const players = await ctx.redis.lrange(`room:${roomCode}:players`, 0, -1);
+
+    if (!players) return { ids: [] };
+
+    return { ids: players };
   }),
   getOpponent: protectedProcedure.query(async ({ ctx }) => {
-    const roomCode = validateRedisSchema(
-      await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
-      z.string(),
-    );
+    const roomCode = z
+      .string()
+      .nullable()
+      .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
 
-    if (!roomCode) return {};
+    if (!roomCode) {
+      console.log("\n\ngetOpponent: Room code not found\n\n");
+      return { name: undefined };
+    }
 
-    const gameState = validateRedisSchema(
-      await ctx.redis.get(`room:${roomCode}:game-state`),
-      gameStateSchema,
-    );
+    const players = await ctx.redis.lrange(`room:${roomCode}:players`, 0, -1);
 
-    if (!gameState) return {};
+    if (!players) {
+      console.log("\n\ngetOpponent: Players not found\n\n");
+      return { name: undefined };
+    }
 
-    const opponentId = gameState.players.find(
-      (player) => player !== ctx.session.user.id,
-    );
+    const opponentId = players.find((player) => player !== ctx.session.user.id);
 
-    if (!opponentId) return {};
+    if (!opponentId) {
+      console.log("\n\ngetOpponent: Opponent id not found\n\n");
+      return { name: undefined };
+    }
 
     const opponent = await ctx.db.query.users.findFirst({
       where: (users, { eq }) => eq(users.id, opponentId),
@@ -262,6 +268,6 @@ export const roomRouter = createTRPCRouter({
         message: "Opponent not found in database",
       });
 
-    return { name: opponent.name };
+    return { name: opponent.name ?? "Opponent" };
   }),
 });

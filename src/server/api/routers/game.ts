@@ -6,11 +6,10 @@ import { env } from "@/env";
 import { TRPCError } from "@trpc/server";
 import {
   type PersonLink,
-  gameStateSchema,
   getIsJobValid,
   getIsPlayerTurn,
+  boardStateSchema,
 } from "@/lib/game-state";
-import { validateRedisSchema } from "@/lib/utils";
 
 const mediaSchema = z.object({
   key: z.string(),
@@ -71,14 +70,12 @@ export const gameRouter = createTRPCRouter({
   submitAnswer: protectedProcedure
     .input(z.object({ answer: z.union([mediaSchema, z.undefined()]) }))
     .mutation(async ({ ctx, input }) => {
-      // TODO: get time and compare to time in redis
+      if (!input.answer) return { success: false };
 
-      if (!input.answer) return;
-
-      const roomCode = validateRedisSchema(
-        await ctx.redis.get(`player:${ctx.session.user.id}:room-code`),
-        z.string(),
-      );
+      const roomCode = z
+        .string()
+        .nullable()
+        .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
 
       if (!roomCode)
         throw new TRPCError({
@@ -86,34 +83,43 @@ export const gameRouter = createTRPCRouter({
           message: "Room code not found",
         });
 
-      const gameState = validateRedisSchema(
-        await ctx.redis.get(`room:${roomCode}:game-state`),
-        gameStateSchema,
-      );
+      const tx1 = ctx.redis.pipeline();
 
-      if (!gameState)
+      tx1.lrange(`room:${roomCode}:board-state`, 0, -1);
+
+      tx1.lrange(`room:${roomCode}:players`, 0, -1);
+
+      tx1.get(`room:${roomCode}:current-credits`);
+
+      const [boardState, players, currentCredits] = z
+        .tuple([
+          boardStateSchema.nullable(),
+          z.array(z.string()).nullable(),
+          z.array(z.number()).nullable(),
+        ])
+        .parse(await tx1.exec());
+
+      if (!boardState || !players || !currentCredits) {
+        console.log(
+          "Board state or players not found:",
+          `boardState.length = ${boardState?.length ?? 0},`,
+          `players.length = ${players?.length ?? 0}`,
+          `currentCredits.length = ${currentCredits?.length ?? 0}`,
+        );
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Game state not found",
+          message: "Board, players, or initial id not found",
         });
+      }
 
-      const isPlayerTurn = getIsPlayerTurn(gameState, ctx.session.user.id);
-
-      if (!isPlayerTurn)
+      if (!getIsPlayerTurn(players, boardState.length, ctx.session.user.id))
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Not user's turn",
         });
 
-      // TODO: make more robust by using id instead of label
-      if (gameState.initialLabel === input.answer.label)
-        return {
-          success: false,
-          message: "This media has already been played",
-        };
-
-      const isMediaAlreadyPlayed = gameState.media.find(
-        (item) => item.key === input.answer?.key, // don't know why `input.answer` could be undefined
+      const isMediaAlreadyPlayed = Boolean(
+        boardState.find((item) => item.key === input.answer?.key),
       );
 
       if (isMediaAlreadyPlayed)
@@ -122,73 +128,92 @@ export const gameRouter = createTRPCRouter({
           message: "This media has already been played",
         };
 
-      // TODO: make more efficient
-      let cast: PersonLink[];
-      let crew: PersonLink[];
+      const links = [] as PersonLink[];
+      const peopleIds = new Set<number>();
+
+      function addLink(person: PersonLink) {
+        const isLink = currentCredits?.includes(person.id) ?? false;
+        const isDuplicate = Boolean(
+          links.find((link) => link.id === person.id),
+        );
+
+        if (isLink && !isDuplicate) {
+          links.push({ id: person.id, name: person.name });
+        }
+      }
 
       if (input.answer.mediaType === "movie") {
         const credits = await tmdb.movies.credits(input.answer.id);
-        cast = credits.cast.map((person) => ({
-          id: person.id,
-          name: person.name,
-        }));
-        crew = credits.crew.reduce((acc, person) => {
-          if (getIsJobValid(person.job))
-            return [...acc, { id: person.id, name: person.name }];
 
-          return acc;
-        }, [] as PersonLink[]);
+        for (const person of credits.cast) {
+          peopleIds.add(person.id);
+          addLink(person);
+        }
+
+        for (const person of credits.crew) {
+          if (!getIsJobValid(person.job)) continue;
+
+          peopleIds.add(person.id);
+          addLink(person);
+        }
       } else if (input.answer.mediaType === "tv") {
         const credits = await tmdb.tvShows.aggregateCredits(input.answer.id);
-        cast = credits.cast.map((person) => ({
-          id: person.id,
-          name: person.name,
-        }));
-        crew = credits.crew.reduce((acc, person) => {
+
+        for (const person of credits.cast) {
+          peopleIds.add(person.id);
+          addLink(person);
+        }
+
+        for (const person of credits.crew) {
           const isJobValid = person.jobs.some((job) => getIsJobValid(job.job));
-          if (isJobValid) return [...acc, { id: person.id, name: person.name }];
-          return acc;
-        }, [] as PersonLink[]);
+          if (!isJobValid) continue;
+
+          peopleIds.add(person.id);
+          addLink(person);
+        }
       } else {
         throw new TRPCError({
-          code: "BAD_REQUEST",
+          code: "INTERNAL_SERVER_ERROR",
           message: `Unknown media type "${input.answer.mediaType}"`,
         });
       }
 
-      const people = [...cast, ...crew];
-
-      const peopleIds: number[] = [];
-
-      const links = people.reduce((acc, person) => {
-        peopleIds.push(person.id);
-
-        const found = gameState.currentCredits.find((id) => id === person.id);
-        if (typeof found === "undefined") return acc;
-
-        if (acc.find((link) => link.id === person.id)) return acc;
-
-        return [...acc, person];
-      }, [] as PersonLink[]);
-
       if (links.length === 0)
         return { success: false, message: "No links found" };
 
-      gameState.currentCredits = peopleIds;
-      gameState.media = [
-        {
-          key: input.answer.key,
-          label: input.answer.label,
-          links,
-        },
-        ...gameState.media,
-      ];
+      const newMedia = {
+        key: input.answer.key,
+        label: input.answer.label,
+        links,
+      };
 
-      await ctx.redis.set(`room:${roomCode}:game-state`, gameState);
+      const tx2 = ctx.redis.pipeline();
+
+      tx2.set(`room:${roomCode}:current-credits`, Array.from(peopleIds));
+
+      tx2.lpush(`room:${roomCode}:board-state`, newMedia);
+
+      await tx2.exec();
 
       const channel = ctx.ablyClient.channels.get(roomCode);
-      await channel.publish("update", gameState);
+      await channel.publish("update", newMedia);
 
       return { success: true };
     }),
+  getBoardState: protectedProcedure.query(async ({ ctx }) => {
+    const roomCode = z
+      .string()
+      .nullable()
+      .parse(await ctx.redis.get(`player:${ctx.session.user.id}:room-code`));
+
+    if (!roomCode) return { state: [] };
+
+    const boardState = boardStateSchema
+      .nullable()
+      .parse(await ctx.redis.lrange(`room:${roomCode}:board-state`, 0, -1));
+
+    if (!boardState) return { state: [] };
+
+    return { state: boardState };
+  }),
 });
