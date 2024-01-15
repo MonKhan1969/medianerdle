@@ -6,66 +6,6 @@ import { z } from "zod";
 
 export const roomRouter = createTRPCRouter({
   join: protectedProcedure.query(async ({ ctx }) => {
-    async function createNewRoom() {
-      console.log("Getting initial game info");
-
-      const [initialKey, initialLabel, initialCredits] = z
-        .tuple([
-          z.string().nullable(),
-          z.string().nullable(),
-          z.array(z.number()).nullable(),
-        ])
-        .parse(
-          await ctx.redis.mget(
-            "initial:key",
-            "initial:label",
-            "initial:credits",
-          ),
-        );
-
-      if (!initialKey || !initialLabel || !initialCredits) {
-        console.log(
-          "Initial game info not set:",
-          `key = ${initialKey},`,
-          `label = ${initialLabel},`,
-          `credits.length = ${initialCredits?.length ?? 0}`,
-        );
-
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Initial game info not set",
-        });
-      }
-
-      console.log("Creating new room");
-
-      const newRoomCode = createId();
-
-      console.log(`New room code: ${newRoomCode}`);
-
-      const tx = ctx.redis.pipeline();
-
-      tx.mset({
-        ["open-room-code"]: newRoomCode,
-        [`player:${ctx.session.user.id}:room-code`]: newRoomCode,
-        [`room:${newRoomCode}:current-credits`]: initialCredits,
-      });
-
-      tx.lpush(`room:${newRoomCode}:players`, ctx.session.user.id);
-
-      tx.lpush(`room:${newRoomCode}:board-state`, {
-        key: initialKey,
-        label: initialLabel,
-        links: [],
-      });
-
-      await tx.exec();
-
-      console.log("Done creating new room");
-
-      return { code: newRoomCode };
-    }
-
     console.log(
       `Player "${ctx.session.user.name}" (${ctx.session.user.id}) is joining a room`,
     );
@@ -122,11 +62,53 @@ export const roomRouter = createTRPCRouter({
       if (!openRoomCode) {
         // no open room
         // create new room
-        const { code } = await createNewRoom();
+
+        console.log("Getting initial game info");
+
+        const initial = z
+          .object({
+            key: z.string(),
+            label: z.string(),
+            credits: z.array(z.number()),
+          })
+          .nullable()
+          .parse(await ctx.redis.get("initial"));
+
+        if (!initial)
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Initial game info not set",
+          });
+
+        console.log("Creating new room");
+
+        const newRoomCode = createId();
+
+        console.log(`New room code: ${newRoomCode}`);
+
+        const tx = ctx.redis.pipeline();
+
+        tx.mset({
+          "open-room-code": newRoomCode,
+          [`player:${ctx.session.user.id}:room-code`]: newRoomCode,
+          [`room:${newRoomCode}:current-credits`]: initial.credits,
+        });
+
+        tx.lpush(`room:${newRoomCode}:players`, ctx.session.user.id);
+
+        tx.lpush(`room:${newRoomCode}:board-state`, {
+          key: initial.key,
+          label: initial.label,
+          links: [],
+        });
+
+        await tx.exec();
+
+        console.log("Done creating new room");
 
         await ctx.lock.release();
 
-        return { code, isGamePlaying: false };
+        return { code: newRoomCode, isGamePlaying: false };
       }
 
       // join open room
