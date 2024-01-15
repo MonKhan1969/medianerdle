@@ -15,7 +15,6 @@
     "@auth/drizzle-adapter": "^0.3.6",
     "@formkit/auto-animate": "^0.8.1",
     "@highlight-run/next": "^7.3.1",
-    "@highlight-run/node": "^3.7.1",
     "@paralleldrive/cuid2": "^2.2.2",
     "@planetscale/database": "^1.11.0",
     "@radix-ui/react-label": "^2.0.2",

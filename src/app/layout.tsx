@@ -6,12 +6,13 @@ import Link from "next/link";
 import { Analytics } from "@vercel/analytics/react";
 import { AxiomWebVitals } from "next-axiom";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { HighlightInit } from "@highlight-run/next/client";
 
 import { env } from "@/env";
 import { TRPCReactProvider } from "@/trpc/react";
 import { getServerAuthSession } from "@/server/auth";
 import { buttonVariants } from "@/app/_components/ui/button";
-import ClientSessionProvider from "./client-auth";
+import ClientWrapper from "./client-wrapper";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,20 +33,31 @@ export default async function RootLayout({
   const session = await getServerAuthSession();
 
   return (
-    <html lang="en">
-      <body className={`font-sans ${inter.variable}`}>
-        <TRPCReactProvider cookies={cookies().toString()}>
-          <ClientSessionProvider session={session}>
-            <Header />
-            <main className="container">{children}</main>
-            <TailwindIndicator />
-            <Analytics />
-            <AxiomWebVitals />
-            <SpeedInsights />
-          </ClientSessionProvider>
-        </TRPCReactProvider>
-      </body>
-    </html>
+    <>
+      <HighlightInit
+        projectId={env.NEXT_PUBLIC_HIGHLIGHT_PROJECT_ID}
+        serviceName="frontend"
+        tracingOrigins
+        networkRecording={{
+          enabled: true,
+          recordHeadersAndBody: true,
+        }}
+      />
+      <html lang="en">
+        <body className={`font-sans ${inter.variable}`}>
+          <TRPCReactProvider cookies={cookies().toString()}>
+            <ClientWrapper session={session}>
+              <Header />
+              <main className="container">{children}</main>
+              <TailwindIndicator />
+              <Analytics />
+              <AxiomWebVitals />
+              <SpeedInsights />
+            </ClientWrapper>
+          </TRPCReactProvider>
+        </body>
+      </html>
+    </>
   );
 }
 
