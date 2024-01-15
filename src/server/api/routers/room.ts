@@ -23,13 +23,11 @@ export const roomRouter = createTRPCRouter({
       );
 
       // check for game state
-      const boardState = await ctx.redis.lrange(
+      const boardStateLength = await ctx.redis.llen(
         `room:${currentRoomCode}:board-state`,
-        0,
-        -1,
       );
 
-      if (!!boardState) {
+      if (boardStateLength > 0) {
         // game is in progress
 
         const secondPlayer = z
